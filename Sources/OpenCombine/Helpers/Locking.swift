@@ -14,12 +14,35 @@ import Glibc
 #endif
 
 @usableFromInline
-internal protocol UnfairLock: AnyObject {
-    func lock()
-    func unlock()
-}
+internal final class Lock {
 
-extension UnfairLock {
+    @usableFromInline
+    internal var _mutex = pthread_mutex_t()
+
+    @inlinable
+    internal init(recursive: Bool) {
+        var attrib = pthread_mutexattr_t()
+        pthread_mutexattr_init(&attrib)
+        if recursive {
+            pthread_mutexattr_settype(&attrib, Int32(PTHREAD_MUTEX_RECURSIVE))
+        }
+        pthread_mutex_init(&_mutex, &attrib)
+    }
+
+    @inlinable
+    deinit {
+        pthread_mutex_destroy(&_mutex)
+    }
+
+    @inlinable
+    internal func lock() {
+        pthread_mutex_lock(&_mutex)
+    }
+
+    @inlinable
+    internal func unlock() {
+        pthread_mutex_unlock(&_mutex)
+    }
 
     @inlinable
     internal func `do`<Result>(_ body: () throws -> Result) rethrows -> Result {
@@ -28,119 +51,3 @@ extension UnfairLock {
         return try body()
     }
 }
-
-internal protocol UnfairRecursiveLock: UnfairLock {}
-
-internal func unfairLock() -> UnfairLock {
-#if canImport(Darwin)
-    if #available(macOS 10.12, iOS 10.0, tvOS 10.0, watchOS 3.0, *) {
-        return OSUnfairLock()
-    } else {
-        return PThreadMutexLock()
-    }
-#else
-    return PThreadMutexLock()
-#endif
-}
-
-internal func unfairRecursiveLock() -> UnfairRecursiveLock {
-    // TODO: Use os_unfair_recursive_lock on Darwin as soon as it becomes public API.
-    return PThreadMutexRecursiveLock()
-}
-
-private class PThreadMutexLock
-    : UnfairLock,
-      CustomStringConvertible,
-      CustomReflectable,
-      CustomPlaygroundDisplayConvertible
-{
-    private let mutex = UnsafeMutablePointer<pthread_mutex_t>.allocate(capacity: 1)
-
-    init() {
-        var status: CInt
-        var attributes = pthread_mutexattr_t()
-        status = pthread_mutexattr_init(&attributes)
-        precondition(status == 0,
-                     "pthread_mutexattr_init returned non-zero status: \(status)")
-
-        // Enable error detection
-        status = pthread_mutexattr_settype(&attributes, CInt(PTHREAD_MUTEX_ERRORCHECK))
-        precondition(status == 0,
-                     "pthread_mutexattr_settype returned non-zero status: \(status)")
-
-        setAdditionalAttributes(&attributes)
-
-        status = pthread_mutex_init(mutex, &attributes)
-        precondition(status == 0,
-                     "pthread_mutex_init returned non-zero status: \(status)")
-    }
-
-    fileprivate func setAdditionalAttributes(
-        _ attributes: UnsafeMutablePointer<pthread_mutexattr_t>
-    ) {
-        // Do nothing for non-recursive locks
-    }
-
-    final func lock() {
-        let status = pthread_mutex_lock(mutex)
-        precondition(status == 0,
-                     "pthread_mutex_lock returned non-zero status: \(status)")
-    }
-
-    final func unlock() {
-        let status = pthread_mutex_unlock(mutex)
-        precondition(status == 0,
-                     "pthread_mutex_lock returned non-zero status: \(status)")
-    }
-
-    final var description: String { return String(describing: mutex.pointee) }
-
-    final var customMirror: Mirror { return Mirror(reflecting: mutex.pointee) }
-
-    final var playgroundDescription: Any { return description }
-
-    deinit {
-        let status = pthread_mutex_destroy(mutex)
-        precondition(status == 0,
-                     "pthread_mutex_destroy returned non-zero status: \(status)")
-        mutex.deallocate()
-    }
-}
-
-private final class PThreadMutexRecursiveLock: PThreadMutexLock, UnfairRecursiveLock {
-    override func setAdditionalAttributes(
-        _ attributes: UnsafeMutablePointer<pthread_mutexattr_t>
-    ) {
-        let status = pthread_mutexattr_settype(attributes, CInt(PTHREAD_MUTEX_RECURSIVE))
-        precondition(status == 0,
-                     "pthread_mutexattr_settype returned non-zero status: \(status)")
-    }
-}
-
-#if canImport(Darwin)
-
-@available(macOS 10.12, iOS 10.0, tvOS 10.0, watchOS 3.0, *)
-private final class OSUnfairLock
-    : UnfairLock,
-      CustomStringConvertible,
-      CustomReflectable,
-      CustomPlaygroundDisplayConvertible
-{
-    private var mutex = os_unfair_lock()
-
-    func lock() {
-        os_unfair_lock_lock(&mutex)
-    }
-
-    func unlock() {
-        os_unfair_lock_unlock(&mutex)
-    }
-
-    var description: String { return String(describing: mutex) }
-
-    var customMirror: Mirror { return Mirror(reflecting: mutex) }
-
-    var playgroundDescription: Any { return description }
-}
-
-#endif // canImport(Darwin)
