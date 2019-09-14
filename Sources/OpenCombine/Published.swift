@@ -14,13 +14,14 @@
 /// of the property first.
 @propertyWrapper public struct Published<Value> {
 
-    /// Initialize the storage of the Published
-    /// property as well as the corresponding `Publisher`.
+    /// Initialize the storage of the `Published` property as well as the corresponding
+    /// `Publisher`.
     public init(initialValue: Value) {
-        value = initialValue
+        self.init(wrappedValue: initialValue)
     }
 
-    @available(*, unavailable)
+    /// Initialize the storage of the `Published` property as well as the corresponding
+    /// `Publisher`.
     public init(wrappedValue: Value) {
         value = wrappedValue
     }
@@ -57,8 +58,12 @@
 
     private var value: Value
 
-    /// The property that can be accessed with the
-    /// `$` syntax and allows access to the `Publisher`
+    private var publisher: Publisher?
+
+    private var objectWillChange: ObservableObjectPublisher?
+
+    /// The property that can be accessed with the `$` syntax and allows access to
+    /// the `Publisher`
     public var projectedValue: Publisher {
         mutating get {
             if let publisher = publisher {
@@ -70,28 +75,30 @@
         }
     }
 
-    @available(*, unavailable, message:
-        "@Published is only available on properties of classes")
-
+    @available(*, unavailable,
+               message: "@Published is only available on properties of classes")
     public var wrappedValue: Value {
-        get { value }
+        get {
+            return value
+        }
         set {
             value = newValue
             publisher?.subject.value = newValue
         }
     }
 
-    private var publisher: Publisher?
-
-    @available(*, unavailable, message:
-        "This subscript is unavailable in OpenCombine yet")
     public static subscript<EnclosingSelf: AnyObject>(
         _enclosingInstance object: EnclosingSelf,
         wrapped wrappedKeyPath: ReferenceWritableKeyPath<EnclosingSelf, Value>,
         storage storageKeyPath: ReferenceWritableKeyPath<EnclosingSelf, Published<Value>>
     ) -> Value {
-        get { fatalError() }
-        set { fatalError() }
+        get {
+            return object[keyPath: wrappedKeyPath]
+        }
+        set {
+            object[keyPath: storageKeyPath].objectWillChange?.send()
+            object[keyPath: wrappedKeyPath] = newValue
+        }
     }
 }
-#endif
+#endif // swift(>=5.1)
