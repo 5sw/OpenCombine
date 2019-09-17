@@ -30,7 +30,7 @@ extension Subscribers {
         }
 
         /// Requests as many values as the `Publisher` can produce.
-        public static let unlimited = Demand(rawValue: .max)
+        public static let unlimited = Demand(rawValue: UInt(Int.max) + 1)
 
         /// A demand for no items.
         ///
